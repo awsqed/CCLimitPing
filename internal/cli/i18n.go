@@ -35,6 +35,7 @@ type cliText struct {
 	statusSubAccessError      string // translation of provider.ClaudeSubscriptionAccessError; empty = print the error's own text
 	statusFiveHourLineFmt     string // formatted window
 	statusWeeklyLineFmt       string // formatted window
+	statusMonthlyLineFmt      string // formatted window
 	statusScopedLineFmt       string // scope label (e.g. a model), formatted window
 	statusNotEnforced         string
 	statusWindowFmt           string // bar, pct, display word, countdown, clock
@@ -298,8 +299,8 @@ Use "{{.CommandPath}} [command] --help" for more information about a command.{{e
 
 	versionShort: "Print the version",
 
-	statusShort: "Show current 5h/weekly usage and reset countdowns without using quota",
-	statusLong: `Show current 5h and weekly usage for every enabled provider. This command only reads usage data from zero-quota endpoints; it does not send a ping or consume model quota.
+	statusShort: "Show current 5h/weekly/monthly usage and reset countdowns without using quota",
+	statusLong: `Show current 5h, weekly and (where the provider has one) monthly usage for every enabled provider. This command only reads usage data from zero-quota endpoints; it does not send a ping or consume model quota.
 
 The 'today', 'week' and 'month' lines total the tokens this machine's Claude Code / Codex sessions have used since local midnight, since Monday and since the 1st of the month, read from the transcripts those CLIs write to disk, and price them at published API rates — what that use would have cost without the subscription. Work done from another machine or from the web app is not in those logs. Add -v for the per-model breakdown.`,
 	statusVerboseFlag: "print the raw JSON response",
@@ -309,6 +310,7 @@ The 'today', 'week' and 'month' lines total the tokens this machine's Claude Cod
 	statusErrorFmt:                   "%-7s  error: %v\n",
 	statusFiveHourLineFmt:            "  5h     %s\n",
 	statusWeeklyLineFmt:              "  weekly %s\n",
+	statusMonthlyLineFmt:             "  monthly %s\n",
 	statusScopedLineFmt:              "  %-6s %s\n",
 	statusNotEnforced:                "not currently enforced",
 	statusWindowFmt:                  "%s %5.1f%% %-9s resets in %-8s (%s)",
@@ -355,7 +357,7 @@ The 'today', 'week' and 'month' lines total the tokens this machine's Claude Cod
 	pingLong: `Trigger a rate-limit window immediately by sending the minimal message for the selected provider.
 
 Arguments:
-  provider  Optional. One of: claude, codex, all.
+  provider  Optional. One of: claude, codex, opencode-go, all.
             Defaults to all, which pings every enabled provider.
 
 Examples:
@@ -373,8 +375,12 @@ Examples:
 	watchLong: `Run the foreground daemon. When a provider's 5h window resets, limitping sends the minimal message to start the next window.
 
 Arguments:
-  provider  Optional. One of: claude, codex, all.
+  provider  Optional. One of: claude, codex, opencode-go, all.
             Defaults to all, which watches every enabled provider.
+
+Active hours: set active_hours = "07:00-22:00" under a provider to only start
+windows inside that local-time range; outside it, watch waits for the next
+start instead of pinging.
 
 Reset credits (Codex reset credits, Claude reset cards): set auto_redeem = true under [claude] or [codex] in the config and watch also spends a banked reset that is about to lapse — within 24h when there is usage worth reclaiming, or in its final hour. Off by default because redeeming is irreversible; 'limitping redeem' spends one by hand.
 
@@ -391,7 +397,7 @@ Examples:
 	scheduleLong: `Run scheduled pings for the selected provider. Unlike watch, this follows your wall-clock schedule instead of waiting for the provider's reset time.
 
 Arguments:
-  provider  Optional. One of: claude, codex, all.
+  provider  Optional. One of: claude, codex, opencode-go, all.
             Defaults to all, which pings every enabled provider.
 
 Examples:
@@ -483,7 +489,7 @@ Only one watcher runs at a time, foreground or background. The background proces
 	bgStartLong: `Launch the watch daemon in the background (detached from the terminal) and return immediately, freeing your shell. Output goes to a log file under the config directory.
 
 Arguments:
-  provider  Optional. One of: claude, codex, all.
+  provider  Optional. One of: claude, codex, opencode-go, all.
             Defaults to all, which watches every enabled provider.
 
 Examples:
@@ -496,7 +502,7 @@ Examples:
 	bgLogsFollowFlag: "follow the log output (like tail -f)",
 	bgLogsLinesFlag:  "number of trailing log lines to show",
 
-	bgHintStart:          "Start it with: limitping bg start [claude|codex] [--dry-run]",
+	bgHintStart:          "Start it with: limitping bg start [claude|codex|opencode-go] [--dry-run]",
 	bgHintManage:         "Manage it with: limitping bg logs -f  |  limitping bg stop",
 	bgNotRunning:         "Background watch: not running.",
 	bgClearedStaleFmt:    "Background watch: not running (cleared stale pid %d).\n",
@@ -631,8 +637,8 @@ var zhText = cliText{
 
 	versionShort: "打印版本号",
 
-	statusShort: "查看当前 5h/周用量和重置倒计时，不消耗额度",
-	statusLong: `查看所有已启用 Provider 的当前 5h 和周用量。此命令只通过零消耗接口读取用量，不会发送 ping，也不会消耗模型额度。
+	statusShort: "查看当前 5h/周/月用量和重置倒计时，不消耗额度",
+	statusLong: `查看所有已启用 Provider 的当前 5h、周（以及有月限额的 Provider 的月）用量。此命令只通过零消耗接口读取用量，不会发送 ping，也不会消耗模型额度。
 
 "今日"、"本周"、"本月" 三行分别统计本机 Claude Code / Codex 会话从本地零点、本周一、本月 1 日起消耗的 token，数据来自这些 CLI 写在磁盘上的会话记录，并按官方 API 价格折算——也就是不用订阅时这些用量要花多少钱。其他机器或网页版的用量不在这些记录里。加 -v 可查看分模型明细。`,
 	statusVerboseFlag: "打印原始 JSON 响应",
@@ -643,6 +649,7 @@ var zhText = cliText{
 	statusSubAccessError:             "Claude 订阅访问不可用（可能是会员已到期/续费失败，或组织管理员禁用了 Claude Code）；请恢复订阅，或在 Claude Code 中改用 Anthropic API Key",
 	statusFiveHourLineFmt:            "  5h     %s\n",
 	statusWeeklyLineFmt:              "  周     %s\n",
+	statusMonthlyLineFmt:             "  月     %s\n",
 	statusScopedLineFmt:              "  %-6s %s\n",
 	statusNotEnforced:                "当前未生效",
 	statusWindowFmt:                  "%s %5.1f%% %s  %s 后重置 (%s)",
@@ -690,7 +697,7 @@ var zhText = cliText{
 	pingLong: `通过向指定 Provider 发送最小消息，立即触发一个限额窗口。
 
 参数:
-  provider  可选。取值: claude、codex、all。
+  provider  可选。取值: claude、codex、opencode-go、all。
             默认是 all，会 ping 所有已启用的 Provider。
 
 示例:
@@ -708,8 +715,11 @@ var zhText = cliText{
 	watchLong: `以前台守护方式运行。某个 Provider 的 5h 窗口重置后，limitping 会发送最小消息来开启下一个窗口。
 
 参数:
-  provider  可选。取值: claude、codex、all。
+  provider  可选。取值: claude、codex、opencode-go、all。
             默认是 all，会监测所有已启用的 Provider。
+
+活动时段: 在某个 Provider 下设置 active_hours = "07:00-22:00"，watch 只在该本地
+时间段内开启窗口；时段外会等到下一次开始，不会 ping。
 
 重置卡（Codex 重置卡、Claude 重置卡）: 在配置的 [claude] 或 [codex] 下设置 auto_redeem = true，watch 还会在重置卡临近过期时自动用掉它——剩余有效期 24h 内且确实有用量可回收，或进入最后 1 小时。因为兑换不可撤销，默认关闭；手动兑换用 'limitping redeem'。
 
@@ -726,7 +736,7 @@ var zhText = cliText{
 	scheduleLong: `按用户指定的时间表执行 ping。它和 watch 不同: schedule 跟随你的墙钟时间,不会等待 Provider 的限额重置时刻。
 
 参数:
-  provider  可选。取值: claude、codex、all。
+  provider  可选。取值: claude、codex、opencode-go、all。
             默认是 all，会 ping 所有已启用的 Provider。
 
 示例:
@@ -817,7 +827,7 @@ var zhText = cliText{
 	bgStartLong: `在后台（脱离终端）启动 watch 守护进程并立即返回，释放当前终端。输出会写入配置目录下的日志文件。
 
 参数:
-  provider  可选。取值: claude、codex、all。
+  provider  可选。取值: claude、codex、opencode-go、all。
             默认是 all，会监测所有已启用的 Provider。
 
 示例:
@@ -830,7 +840,7 @@ var zhText = cliText{
 	bgLogsFollowFlag: "持续跟踪日志输出（类似 tail -f）",
 	bgLogsLinesFlag:  "显示最后多少行日志",
 
-	bgHintStart:          "启动: limitping bg start [claude|codex] [--dry-run]",
+	bgHintStart:          "启动: limitping bg start [claude|codex|opencode-go] [--dry-run]",
 	bgHintManage:         "管理: limitping bg logs -f  |  limitping bg stop",
 	bgNotRunning:         "后台监听：未在运行。",
 	bgClearedStaleFmt:    "后台监听：未在运行（已清理失效的 pid %d）。\n",

@@ -51,9 +51,10 @@ var (
 
 // Target pairs a provider with its scheduling options.
 type Target struct {
-	Provider   provider.Provider
-	AlignStart time.Time // zero = ping as soon as the window is free
-	AutoRedeem bool      // spend a reset credit that is about to lapse
+	Provider    provider.Provider
+	AlignStart  time.Time    // zero = ping as soon as the window is free
+	ActiveHours config.Hours // zero = around the clock
+	AutoRedeem  bool         // spend a reset credit that is about to lapse
 }
 
 // Scheduler drives the watch loops.
@@ -139,6 +140,21 @@ func (s *Scheduler) runTarget(ctx context.Context, t Target) {
 			return
 		}
 
+		// Outside the configured active hours, don't start a window: sleep
+		// until the range opens again. This is what keeps a daily pattern
+		// (say 07:00-22:00) from chaining a 22:00 window into the night.
+		if !t.ActiveHours.Contains(time.Now()) {
+			next := t.ActiveHours.NextStart(time.Now())
+			wait := time.Until(next)
+			s.log.Printf("[%s] outside active hours %s; next ping at %s (in %s)",
+				name, t.ActiveHours, next.Local().Format("15:04"), wait.Round(time.Second))
+			s.live.set(name, fmt.Sprintf("outside active hours — next ping %s", next.Local().Format("15:04")), next)
+			if !sleepCtx(ctx, wait) {
+				return
+			}
+			continue
+		}
+
 		s.live.set(name, "checking usage…", time.Time{})
 		rctx, cancel := context.WithTimeout(ctx, readTimeout)
 		readAt := time.Now()
@@ -169,6 +185,26 @@ func (s *Scheduler) runTarget(ctx context.Context, t Target) {
 		// A spent credit resets the windows, so this snapshot is stale; re-read
 		// before deciding anything from it.
 		if s.redeemExpiringCredit(ctx, t, u) {
+			continue
+		}
+
+		// Respect the monthly allowance: OpenCode Go has one, and a ping while
+		// it is spent would fall through to the account's pay-as-you-go
+		// balance. Wait for the monthly reset instead.
+		if u.MonthlyExhausted(s.cfg.WeeklyThreshold) {
+			wait := u.Monthly.Remaining() + s.cfg.ResetBuffer.Duration
+			if wait <= 0 {
+				wait = time.Minute
+			}
+			if announce(waitMonthlyExhausted, u.Monthly.ResetsAt) {
+				s.log.Printf("[%s] monthly limit exhausted (%.0f%%); sleeping %s until monthly reset",
+					name, u.Monthly.UsedPercent, wait.Round(time.Second))
+				s.notify(name+": monthly limit reached", "Skipping pings until monthly reset")
+			}
+			s.live.set(name, fmt.Sprintf("monthly limit reached (%.0f%%)", u.Monthly.UsedPercent), time.Now().Add(wait))
+			if !waitWindow(ctx, name, readAt, min(wait, stateRecheck)) {
+				return
+			}
 			continue
 		}
 
@@ -272,6 +308,11 @@ func (s *Scheduler) runTarget(ctx context.Context, t Target) {
 				}
 			}
 			aligned = true
+		}
+		// The anchor may have carried us past the active range; let the top of
+		// the loop put us back to sleep until it opens.
+		if !t.ActiveHours.Contains(time.Now()) {
+			continue
 		}
 
 		if desc, active, err := activeProviderTask(ctx, t.Provider); err != nil {
@@ -480,9 +521,10 @@ func usageRateLimitWait(retryAfter time.Time, now time.Time) time.Duration {
 
 // The long waits runTarget announces, for logging each one once.
 const (
-	waitWeeklyExhausted = "weekly-exhausted"
-	waitWeeklyOnly      = "weekly-only"
-	waitFiveHour        = "5h"
+	waitWeeklyExhausted  = "weekly-exhausted"
+	waitMonthlyExhausted = "monthly-exhausted"
+	waitWeeklyOnly       = "weekly-only"
+	waitFiveHour         = "5h"
 )
 
 // sameReset reports whether two published reset times name the same reset;

@@ -116,6 +116,61 @@ func TestDurationRoundTrip(t *testing.T) {
 	}
 }
 
+func TestLoadReadsActiveHours(t *testing.T) {
+	path := useTempConfigDir(t)
+	writeConfig(t, path, `
+[opencode_go]
+enabled = true
+active_hours = "07:00-22:00"
+`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := cfg.OpenCodeGo.ActiveHours.String(); got != "07:00-22:00" {
+		t.Fatalf("opencode_go.active_hours = %q, want 07:00-22:00", got)
+	}
+	if !cfg.Claude.ActiveHours.IsZero() || !cfg.Codex.ActiveHours.IsZero() {
+		t.Fatal("active_hours leaked into another provider")
+	}
+}
+
+func TestLoadRejectsInvalidActiveHours(t *testing.T) {
+	path := useTempConfigDir(t)
+	writeConfig(t, path, `
+[opencode_go]
+active_hours = "22:00-07:00"
+`)
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() accepted an overnight active_hours range")
+	}
+}
+
+func TestOpenCodeGoIsOptIn(t *testing.T) {
+	def := Default()
+	if def.OpenCodeGo.Enabled {
+		t.Fatal("opencode_go.enabled defaults to true; an install without the CLI would fail status")
+	}
+	if def.OpenCodeGo.Model == "" {
+		t.Fatal("opencode_go.model default is empty")
+	}
+
+	path := useTempConfigDir(t)
+	writeConfig(t, path, `
+[opencode_go]
+enabled = true
+model = "opencode-go/glm-5.3-flash"
+prompt = "hi"
+`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.OpenCodeGo.Enabled || cfg.OpenCodeGo.Model != "opencode-go/glm-5.3-flash" || cfg.OpenCodeGo.Prompt != "hi" {
+		t.Fatalf("opencode_go = %+v, want the file's values", cfg.OpenCodeGo)
+	}
+}
+
 func TestDefaultConfigValidates(t *testing.T) {
 	if err := Default().validate(); err != nil {
 		t.Fatalf("Default() fails its own validation: %v", err)

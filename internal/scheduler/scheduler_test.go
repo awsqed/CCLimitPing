@@ -536,6 +536,34 @@ func TestRunTargetDefersWhileProviderTaskActive(t *testing.T) {
 	}
 }
 
+func TestRunTargetWaitsOutsideActiveHours(t *testing.T) {
+	// Pick a one-hour range that is valid (start < end) and excludes now, so
+	// the loop sleeps instead of reading or pinging. Splitting at noon keeps
+	// both ends inside the same day.
+	now := time.Now()
+	var start, end time.Time
+	if now.Hour() < 12 {
+		start, end = now.Add(2*time.Hour), now.Add(3*time.Hour)
+	} else {
+		start, end = now.Add(-3*time.Hour), now.Add(-2*time.Hour)
+	}
+	hours, err := config.ParseHours(start.Format("15:04") + "-" + end.Format("15:04"))
+	if err != nil {
+		t.Fatalf("ParseHours: %v", err)
+	}
+	p := &stubProvider{
+		usage: &usage.Usage{FiveHour: usage.Window{WindowSeconds: 18000}},
+	}
+	stop := runStub(t, Target{Provider: p, ActiveHours: hours})
+	defer stop()
+
+	time.Sleep(100 * time.Millisecond)
+	reads, triggers := p.counts()
+	if reads != 0 || triggers != 0 {
+		t.Fatalf("outside active hours should neither read nor ping; reads=%d triggers=%d", reads, triggers)
+	}
+}
+
 func TestRunTargetTriggersWhenWindowFree(t *testing.T) {
 	p := &stubProvider{
 		usage: &usage.Usage{FiveHour: usage.Window{WindowSeconds: 18000}},

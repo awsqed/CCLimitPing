@@ -45,6 +45,10 @@ type ProviderConfig struct {
 	// about to lapse (a Codex reset credit or a Claude reset card). Off by
 	// default: redeeming is irreversible.
 	AutoRedeem bool `toml:"auto_redeem"`
+	// ActiveHours restricts pings to a local-time range, e.g. "07:00-22:00".
+	// Outside it, watch waits for the range to open again instead of starting
+	// a window. Empty means no restriction.
+	ActiveHours Hours `toml:"active_hours"`
 }
 
 // Config is the full configuration.
@@ -61,8 +65,9 @@ type Config struct {
 	// provider usage value; "remaining" shows the complement users see in some UIs.
 	UsageDisplay string `toml:"usage_display"`
 
-	Claude ProviderConfig `toml:"claude"`
-	Codex  ProviderConfig `toml:"codex"`
+	Claude     ProviderConfig `toml:"claude"`
+	Codex      ProviderConfig `toml:"codex"`
+	OpenCodeGo ProviderConfig `toml:"opencode_go"`
 }
 
 // Default returns the built-in defaults used when no config file exists.
@@ -88,6 +93,17 @@ func Default() Config {
 			Model:           "",
 			ReasoningEffort: "low",
 			ContinuePrompt:  "continue",
+		},
+		OpenCodeGo: ProviderConfig{
+			// Opt-in: an existing install may have no opencode CLI or Go
+			// subscription, and status must not fail for it.
+			Enabled: false,
+			Prompt:  "Do not perform any work. Reply with exactly: OK",
+			// A large monthly allowance and a low price: a ping only has to be
+			// billable, and it should not burn a scarce model's allowance.
+			Model:          "opencode-go/deepseek-v4.1-flash",
+			ExtraArgs:      []string{},
+			ContinuePrompt: "continue",
 		},
 	}
 }
@@ -197,6 +213,10 @@ model = "haiku"
 extra_args = []
 # Optional RFC3339 anchor for the first window's phase; empty = start ASAP.
 align_start = ""
+# Only start windows inside this local-time range (start inclusive, end
+# exclusive), e.g. "07:00-22:00"; empty = around the clock. Outside it, watch
+# waits for the next start instead of pinging.
+active_hours = ""
 # Message injected to resume a proxied session when the 5h limit recovers
 # (limitping continue claude). Empty = "continue".
 continue_prompt = "continue"
@@ -218,10 +238,29 @@ model = ""
 reasoning_effort = "low"
 extra_args = []
 align_start = ""
+# Only start windows inside this local-time range, e.g. "07:00-22:00"; empty =
+# around the clock.
+active_hours = ""
 # Message injected to resume a proxied session when the 5h limit recovers.
 continue_prompt = "continue"
 # Let watch/continue spend a banked reset credit that is about to lapse (within
 # 24h with usage to reclaim, or in its final hour). Redeeming is irreversible;
 # "limitping redeem" does it manually. See "limitping help redeem".
 auto_redeem = false
+
+[opencode_go]
+# Opt-in: requires the opencode CLI signed in to an OpenCode Console workspace
+# with a Go, Go Plus or Go Teams subscription.
+enabled = false
+prompt = "Do not perform any work. Reply with exactly: OK"
+# Any paid OpenCode Go model starts a window. This one has a large monthly
+# allowance; a ping only has to be billable.
+model = "opencode-go/deepseek-v4.1-flash"
+# Extra "opencode run" args.
+extra_args = []
+# Optional RFC3339 anchor for the first window's phase; empty = start ASAP.
+align_start = ""
+# Only start windows inside this local-time range, e.g. "07:00-22:00"; empty =
+# around the clock.
+active_hours = ""
 `

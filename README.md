@@ -81,6 +81,7 @@ provider quota: `limitping ping --dry-run`, `limitping watch --dry-run`, or
 |---|---|---|---|
 | **Claude Code** | `…/api/oauth/usage` | interactive Claude Code CLI | OAuth (Keychain / `~/.claude`) |
 | **Codex** | `…/backend-api/wham/usage` | `codex exec --ephemeral` | OAuth (`~/.codex/auth.json`) |
+| **OpenCode Go** | `opencode --standalone api experimental.usage.limits` | `opencode --standalone run` | opencode CLI login (`opencode auth login`) |
 
 ## How it works
 
@@ -88,7 +89,7 @@ Two cleanly separated jobs:
 
 | Job | Mechanism | Cost |
 |-----|-----------|------|
-| **Trigger** a new window | the official CLI (interactive Claude Code / headless `codex exec`) | a tiny slice of quota (this is the point) |
+| **Trigger** a new window | the official CLI (interactive Claude Code / headless `codex exec` / `opencode run`) | a tiny slice of quota (this is the point) |
 | **Read** usage & reset times | zero-quota usage endpoints (the same ones CodexBar / community plugins use) | none — never starts a window |
 
 When `watch` sees a 5h window has reset, it first checks whether a Claude/Codex
@@ -133,9 +134,22 @@ for Codex.
   business firing for a synthetic session (it must not register itself as an
   active Codex session either), and nothing reviews what the model does on this
   path, unlike an interactive session with you at the keys.
+- **OpenCode Go**: reads the Go allowance through OpenCode's own local API
+  (`opencode --standalone api experimental.usage.limits`), which reports the
+  account's 5h, weekly and monthly meters without spending quota. Triggering
+  runs `opencode --standalone run --format json --model <model> "<prompt>"`
+  under a session id chosen up front, so the synthetic session can be deleted
+  afterwards; its `step_finish` events carry the ping's tokens and cost. The
+  ping gets a private project and config with every tool denied, so the user's
+  AGENTS.md cannot turn a one-request ping into a tool loop. Any paid Go model
+  starts a window — the default is one with a large monthly allowance so a ping
+  does not eat a scarce model's cap. Enable it with `[opencode_go] enabled =
+  true` after `opencode auth login`; it is off by default because the CLI and
+  subscription are optional.
 
 Claude/Codex tokens are reused from the official tools (no separate login) and
-refreshed on 401.
+refreshed on 401. OpenCode Go likewise reuses the credentials stored by the
+`opencode` CLI, including the OAuth refresh it performs.
 
 ## Install
 
@@ -214,8 +228,8 @@ go install github.com/wavever/CCLimitPing/cmd/limitping@latest
 go build -o bin/limitping ./cmd/limitping
 ```
 
-Each provider you enable needs its own credentials: the `claude` / `codex` CLIs
-logged in.
+Each provider you enable needs its own credentials: the `claude` / `codex` /
+`opencode` CLIs logged in.
 
 ## Usage
 
@@ -229,7 +243,7 @@ limitping ping claude          # Claude only
 limitping ping codex           # Codex only
 limitping ping --dry-run       # show the commands without sending
 limitping watch                # foreground daemon: ping each window at reset (alias: w)
-limitping watch claude         # watch only one provider (claude|codex)
+limitping watch claude         # watch only one provider (claude|codex|opencode-go)
 limitping watch --live         # optional live heartbeat/status line
 limitping watch --dry-run      # log when pings would fire, without sending
 limitping schedule codex --at 05:00 --at 13:00  # ping at daily local times
@@ -387,9 +401,10 @@ also keeps it as `date`), `cost_usd` is the API-rate estimate, and
 `cost_complete` is false if a model that ran had no published rates, making that
 figure a lower bound.
 
-A window key (`five_hour` / `weekly`) is omitted when the provider does not
-currently enforce that limit — e.g. OpenAI temporarily removed Codex's 5h
-window on 2026-07-12, leaving only the weekly cap. Text mode prints
+A window key (`five_hour` / `weekly` / `monthly`) is omitted when the provider
+does not currently enforce that limit — e.g. OpenAI temporarily removed Codex's
+5h window on 2026-07-12, leaving only the weekly cap, and `monthly` exists only
+for OpenCode Go. Text mode prints
 `not currently enforced` for such a window, and `watch` schedules its ping at
 the weekly reset instead of every 5h.
 
@@ -498,6 +513,7 @@ prompt     = "."
 model      = "haiku"      # cheapest tier; triggering doesn't need a SOTA model
 extra_args = []           # extra Claude CLI args; print/headless-only flags are ignored
 align_start = ""          # optional RFC3339 anchor for the first window; empty = start ASAP
+active_hours = ""         # only ping inside e.g. "07:00-22:00" (local time); empty = around the clock
 continue_prompt = "continue"  # message `continue` injects on 5h recovery; empty = "continue"
 
 [codex]
@@ -507,7 +523,16 @@ model            = ""     # empty = pick the cheapest model your plan offers
 reasoning_effort = "low"  # "minimal" is rejected when web_search/image_gen tools are enabled
 extra_args       = []     # extra Codex CLI args; exec-only flags such as --json are ignored
 align_start      = ""
+active_hours     = ""     # only ping inside e.g. "07:00-22:00"; empty = around the clock
 continue_prompt  = "continue"  # message `continue` injects on 5h recovery; empty = "continue"
+
+[opencode_go]
+enabled     = false        # opt-in: needs the opencode CLI signed in to a Go workspace
+prompt      = "Do not perform any work. Reply with exactly: OK"
+model       = "opencode-go/deepseek-v4.1-flash"  # any paid Go model starts a window
+extra_args  = []           # extra `opencode run` args
+align_start = ""
+active_hours = "07:00-22:00"  # optional: only start windows in this local-time range
 ```
 
 Top-level keys:
@@ -524,6 +549,12 @@ Top-level keys:
 - **`align_start`** (per provider) — pin the phase of your windows: set to a
   future RFC3339 time to delay the very first ping until then; afterwards windows
   chain automatically every ~5h.
+- **`active_hours`** (per provider) — only start windows inside this local-time
+  range, e.g. `"07:00-22:00"` (start inclusive, end exclusive). Outside it,
+  `watch` / `bg` wait for the next start instead of pinging, so a 17:00 window
+  runs to 22:00 and the next ping happens at 07:00 the following morning. Empty
+  (the default) allows pings around the clock. Use the local timezone, e.g.
+  `TZ=Asia/Ho_Chi_Minh`. `align_start` and `active_hours` can be combined.
 
 ### Why a cheap model
 

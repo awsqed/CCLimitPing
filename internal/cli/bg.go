@@ -105,7 +105,7 @@ func newBgStartCmd() *cobra.Command {
 		Short:     text.bgStartShort,
 		Long:      text.bgStartLong,
 		Args:      cobra.MatchAll(cobra.MaximumNArgs(1), cobra.OnlyValidArgs),
-		ValidArgs: []string{"claude", "codex", "all"},
+		ValidArgs: []string{"claude", "codex", "opencode-go", "all"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runBgStart(cmd.OutOrStdout(), argOrAll(args), dryRun)
 		},

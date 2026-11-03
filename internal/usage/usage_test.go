@@ -41,6 +41,27 @@ func TestWindowRemaining(t *testing.T) {
 	}
 }
 
+func TestMonthlyExhausted(t *testing.T) {
+	cases := []struct {
+		name string
+		u    Usage
+		want bool
+	}{
+		{"no monthly window", Usage{}, false},
+		{"monthly under threshold", Usage{Monthly: Window{UsedPercent: 50, ResetsAt: time.Now().Add(time.Hour)}}, false},
+		{"monthly at threshold", Usage{Monthly: Window{UsedPercent: 99, ResetsAt: time.Now().Add(time.Hour)}}, true},
+		{"credits cover it", Usage{
+			Monthly: Window{UsedPercent: 100, ResetsAt: time.Now().Add(time.Hour)},
+			Credits: &Credits{HasCredits: true},
+		}, false},
+	}
+	for _, c := range cases {
+		if got := c.u.MonthlyExhausted(0.99); got != c.want {
+			t.Errorf("%s: MonthlyExhausted() = %t, want %t", c.name, got, c.want)
+		}
+	}
+}
+
 func TestWindowMissing(t *testing.T) {
 	cases := []struct {
 		name string

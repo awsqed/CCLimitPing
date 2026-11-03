@@ -145,6 +145,7 @@ type statusJSON struct {
 	Plan         string            `json:"plan,omitempty"`
 	FiveHour     *windowJSON       `json:"five_hour,omitempty"`
 	Weekly       *windowJSON       `json:"weekly,omitempty"`
+	Monthly      *windowJSON       `json:"monthly,omitempty"`
 	Scoped       []scopedJSON      `json:"scoped_limits,omitempty"`
 	Credits      *creditsJSON      `json:"credits,omitempty"`
 	ResetCredits *resetCreditsJSON `json:"reset_credits,omitempty"`
@@ -243,6 +244,9 @@ func newStatusJSON(u *usage.Usage, verbose bool, sum *spend.Summary) statusJSON 
 	}
 	if !u.Weekly.Missing() {
 		s.Weekly = newWindowJSON(u.Weekly)
+	}
+	if !u.Monthly.Missing() {
+		s.Monthly = newWindowJSON(u.Monthly)
 	}
 	for _, l := range u.ScopedLimits {
 		s.Scoped = append(s.Scoped, scopedJSON{Label: l.Label, windowJSON: newWindowJSON(l.Window)})
@@ -372,6 +376,9 @@ func printUsageBody(out io.Writer, text cliText, u *usage.Usage, verbose bool, d
 	fmt.Fprintf(out, "%s%s\n", u.Provider, plan)
 	fmt.Fprintf(out, text.statusFiveHourLineFmt, fmtWindow(text, u.FiveHour, display))
 	fmt.Fprintf(out, text.statusWeeklyLineFmt, fmtWindow(text, u.Weekly, display))
+	if !u.Monthly.Missing() {
+		fmt.Fprintf(out, text.statusMonthlyLineFmt, fmtWindow(text, u.Monthly, display))
+	}
 	for _, l := range u.ScopedLimits {
 		fmt.Fprintf(out, text.statusScopedLineFmt, l.Label, fmtWindow(text, l.Window, display))
 	}

@@ -69,6 +69,7 @@ limitping bg logs -f
 |---|---|---|---|
 | **Claude Code** | `…/api/oauth/usage` | 交互式 Claude Code CLI | OAuth(钥匙串 / `~/.claude`) |
 | **Codex** | `…/backend-api/wham/usage` | `codex exec --ephemeral` | OAuth(`~/.codex/auth.json`) |
+| **OpenCode Go** | `opencode --standalone api experimental.usage.limits` | `opencode --standalone run` | opencode CLI 登录(`opencode auth login`) |
 
 ## 工作原理
 
@@ -76,7 +77,7 @@ limitping bg logs -f
 
 | 任务 | 机制 | 代价 |
 |------|------|------|
-| **触发**新窗口 | 官方 CLI(交互式 Claude Code / headless `codex exec`) | 消耗一点额度(这正是功能本身) |
+| **触发**新窗口 | 官方 CLI(交互式 Claude Code / headless `codex exec` / `opencode run`) | 消耗一点额度(这正是功能本身) |
 | **读取**用量与重置时刻 | 零消耗用量端点(和 CodexBar / 社区插件用的是同一批) | 不消耗,也绝不会起算窗口 |
 
 当 `watch` 发现 5h 窗口已经重置时,会先检查是否有 Claude/Codex 会话正处于对话进行中。
@@ -109,7 +110,17 @@ limitping bg logs -f
   `--sandbox read-only`:钩子没理由为一个合成会话触发(它也不该把自己登记成活跃的
   Codex 会话),而且这条路径上没有人审阅模型的动作 —— 交互式会话有你在键盘前,它没有。
 
+- **OpenCode Go**:通过 OpenCode 自己的本地 API(`opencode --standalone api
+  experimental.usage.limits`)读取账户的 5h / 周 / 月三个计量,不消耗额度。触发执行
+  `opencode --standalone run --format json --model <model> "<prompt>"`,会话 id 由
+  limitping 先生成,所以事后可以删掉合成会话;`step_finish` 事件带着这次 ping 的
+  token 和费用。ping 使用独立项目和独立配置,并禁掉全部工具,免得用户的 AGENTS.md
+  把一次请求变成一串工具调用。任何付费 Go 模型都会起算窗口,默认选月额度较大的那个,
+  免得吃掉稀缺模型的限额。先 `opencode auth login`,再在配置里设
+  `[opencode_go] enabled = true`;CLI 和订阅都是可选的,所以它默认关闭。
+
 Claude/Codex 的 token 直接复用官方工具(无需另外登录),遇到 401 会自动刷新。
+OpenCode Go 同样复用 `opencode` CLI 保存的凭据,包括它自己的 OAuth 刷新。
 
 ## 安装
 
@@ -183,7 +194,7 @@ go install github.com/wavever/CCLimitPing/cmd/limitping@latest
 go build -o bin/limitping ./cmd/limitping
 ```
 
-你启用的每个 Provider 各自需要凭据:登录好的 `claude` / `codex` CLI。
+你启用的每个 Provider 各自需要凭据:登录好的 `claude` / `codex` / `opencode` CLI。
 
 ## 使用
 
@@ -197,7 +208,7 @@ limitping ping claude          # 只触发 Claude
 limitping ping codex           # 只触发 Codex
 limitping ping --dry-run       # 只打印将执行的命令,不真正发送
 limitping watch                # 前台守护:在每个窗口重置时自动 ping(简称: w)
-limitping watch claude         # 只监测某一个 Provider(claude|codex)
+limitping watch claude         # 只监测某一个 Provider(claude|codex|opencode-go)
 limitping watch --live         # 可选:显示实时心电图状态行
 limitping watch --dry-run      # 只记录何时会触发,不真正发送
 limitping schedule codex --at 05:00 --at 13:00  # 按每日指定时间 ping
@@ -341,9 +352,9 @@ Anthropic 有该档位的模型为 200K)时,整次请求都按长上下文费率
 `cost_usd` 是按 API 价折算的估算值,而当某个跑过的模型没有公开价格时
 `cost_complete` 为 false,此时该金额只是下限。
 
-当 Provider 当前不执行某个窗口限制时,对应的窗口键(`five_hour` / `weekly`)会被
-省略——例如 OpenAI 于 2026-07-12 临时取消了 Codex 的 5 小时限制,只保留周限额。
-文本模式下这类窗口会显示「当前未生效」(英文环境: `not currently enforced`),
+当 Provider 当前不执行某个窗口限制时,对应的窗口键(`five_hour` / `weekly` /
+`monthly`)会被省略——例如 OpenAI 于 2026-07-12 临时取消了 Codex 的 5 小时限制,
+只保留周限额;`monthly` 只有 OpenCode Go 才有。文本模式下这类窗口会显示「当前未生效」(英文环境: `not currently enforced`),
 `watch` 也会改为在周窗口重置时 ping,而不是每 5 小时一次。
 
 「限制生效但窗口尚未开始」是另一种状态:文本模式显示「无活跃窗口」(英文环境:
@@ -450,6 +461,7 @@ prompt     = "."
 model      = "haiku"      # 最便宜的档位;触发并不需要 SOTA 模型
 extra_args = []           # 额外 Claude CLI 参数;print/headless-only 参数会被忽略
 align_start = ""          # 可选 RFC3339:首个窗口的相位锚点;留空 = 尽快开始
+active_hours = ""         # 只在此本地时间段内 ping,例如 "07:00-22:00";留空 = 全天
 continue_prompt = "continue"  # continue 在 5h 恢复时注入的消息;留空 = "continue"
 
 [codex]
@@ -459,7 +471,16 @@ model            = ""     # 留空 = 自动选择你的套餐里最便宜的模�
 reasoning_effort = "low"  # 启用 web_search/image_gen 工具时,"minimal" 会被拒绝
 extra_args       = []     # 额外 Codex CLI 参数;--json 等 exec-only 参数会被忽略
 align_start      = ""
+active_hours     = ""     # 只在此本地时间段内 ping,例如 "07:00-22:00";留空 = 全天
 continue_prompt  = "continue"  # continue 在 5h 恢复时注入的消息;留空 = "continue"
+
+[opencode_go]
+enabled     = false        # 默认关闭:需要 opencode CLI 登录到 Go 工作区
+prompt      = "Do not perform any work. Reply with exactly: OK"
+model       = "opencode-go/deepseek-v4.1-flash"  # 任何付费 Go 模型都会起算窗口
+extra_args  = []           # 额外 `opencode run` 参数
+align_start = ""
+active_hours = "07:00-22:00"  # 可选:只在此本地时间段内开启窗口
 ```
 
 顶层配置项:
@@ -471,6 +492,10 @@ continue_prompt  = "continue"  # continue 在 5h 恢复时注入的消息;留空
 - **`usage_display`** —— 文本 `status` / `bg status` 使用已用百分比还是剩余百分比。
 - **`align_start`**(每个 Provider)—— 固定窗口相位:设为一个未来的 RFC3339 时间,
   把第一次 ping 推迟到那时;之后窗口每 ~5h 自动接龙。
+- **`active_hours`**(每个 Provider)—— 只在此本地时间段内开启窗口,例如
+  `"07:00-22:00"`(含开始、不含结束)。时间段外 `watch` / `bg` 会等到下一次开始,
+  因此 17:00 的窗口跑到 22:00,下一次 ping 在次日 07:00。留空(默认)表示全天。
+  使用本地时区,例如 `TZ=Asia/Ho_Chi_Minh`;可与 `align_start` 同时使用。
 
 ### 为什么用便宜模型
 

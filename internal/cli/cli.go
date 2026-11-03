@@ -314,8 +314,10 @@ func buildProvider(name string, cfg config.Config) (provider.Provider, error) {
 		return provider.NewClaude(cfg.Claude), nil
 	case "codex":
 		return provider.NewCodex(cfg.Codex), nil
+	case "opencode-go":
+		return provider.NewOpenCodeGo(cfg.OpenCodeGo), nil
 	default:
-		return nil, fmt.Errorf("unknown provider %q (want claude, codex, or all)", name)
+		return nil, fmt.Errorf("unknown provider %q (want claude, codex, opencode-go, or all)", name)
 	}
 }
 
@@ -327,6 +329,9 @@ func enabledProviders(cfg config.Config) []provider.Provider {
 	}
 	if cfg.Codex.Enabled {
 		ps = append(ps, provider.NewCodex(cfg.Codex))
+	}
+	if cfg.OpenCodeGo.Enabled {
+		ps = append(ps, provider.NewOpenCodeGo(cfg.OpenCodeGo))
 	}
 	return ps
 }
@@ -360,7 +365,7 @@ func makeTarget(p provider.Provider, pc config.ProviderConfig) (scheduler.Target
 		}
 		anchor = t
 	}
-	return scheduler.Target{Provider: p, AlignStart: anchor, AutoRedeem: pc.AutoRedeem}, nil
+	return scheduler.Target{Provider: p, AlignStart: anchor, ActiveHours: pc.ActiveHours, AutoRedeem: pc.AutoRedeem}, nil
 }
 
 // buildTargets builds scheduler targets for all enabled providers.
@@ -381,6 +386,11 @@ func buildTargets(cfg config.Config) ([]scheduler.Target, error) {
 	}
 	if cfg.Codex.Enabled {
 		if err := add(provider.NewCodex(cfg.Codex), cfg.Codex); err != nil {
+			return nil, err
+		}
+	}
+	if cfg.OpenCodeGo.Enabled {
+		if err := add(provider.NewOpenCodeGo(cfg.OpenCodeGo), cfg.OpenCodeGo); err != nil {
 			return nil, err
 		}
 	}
@@ -415,6 +425,8 @@ func providerConfig(cfg config.Config, name string) config.ProviderConfig {
 		return cfg.Claude
 	case "codex":
 		return cfg.Codex
+	case "opencode-go":
+		return cfg.OpenCodeGo
 	}
 	return config.ProviderConfig{}
 }

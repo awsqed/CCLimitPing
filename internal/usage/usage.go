@@ -192,9 +192,13 @@ type ScopedLimit struct {
 
 // Usage is a provider's full rate-limit snapshot at FetchedAt.
 type Usage struct {
-	Provider     string
-	FiveHour     Window
-	Weekly       Window
+	Provider string
+	FiveHour Window
+	Weekly   Window
+	// Monthly is the plan's monthly allowance, when the provider has one
+	// (OpenCode Go). Claude and Codex have no monthly window, so it stays
+	// Missing for them.
+	Monthly      Window
 	ScopedLimits []ScopedLimit
 	// Buckets holds provider-specific windows under the provider's own names
 	// (Claude's seven_day_opus, say) — the names a ResetCredit's Clears uses —
@@ -398,4 +402,14 @@ func (u *Usage) WeeklyExhausted(threshold float64) bool {
 		return false
 	}
 	return u.Weekly.UsedPercent/100 >= threshold
+}
+
+// MonthlyExhausted reports whether the monthly window should block new work:
+// its utilization is at/above threshold and no usable credits remain. Only
+// providers with a monthly allowance (OpenCode Go) ever hit this.
+func (u *Usage) MonthlyExhausted(threshold float64) bool {
+	if u.Monthly.Missing() || u.CreditsUsable() {
+		return false
+	}
+	return u.Monthly.UsedPercent/100 >= threshold
 }

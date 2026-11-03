@@ -55,11 +55,32 @@ func TestUnknownProviderIsRejected(t *testing.T) {
 
 	if _, err := selectProviders(cfg, "nonesuch"); err == nil {
 		t.Fatal("selectProviders succeeded on an unknown provider, want an error")
-	} else if !strings.Contains(err.Error(), "claude, codex, or all") {
+	} else if !strings.Contains(err.Error(), "claude, codex, opencode-go, or all") {
 		t.Fatalf("selectProviders error = %v, want the valid provider list", err)
 	}
 	if _, err := selectTargets(cfg, "nonesuch"); err == nil {
 		t.Fatal("selectTargets succeeded on an unknown provider, want an error")
+	}
+}
+
+func TestOpenCodeGoIsDisabledByDefaultButSelectable(t *testing.T) {
+	cfg := config.Default()
+	if cfg.OpenCodeGo.Enabled {
+		t.Fatal("opencode_go enabled in defaults")
+	}
+	providers, err := selectProviders(cfg, "opencode-go")
+	if err != nil {
+		t.Fatalf("selectProviders(opencode-go): %v", err)
+	}
+	if got, want := providerNames(providers), []string{"opencode-go"}; !sameStrings(got, want) {
+		t.Fatalf("providers = %#v, want %#v", got, want)
+	}
+	targets, err := selectTargets(cfg, "opencode-go")
+	if err != nil {
+		t.Fatalf("selectTargets(opencode-go): %v", err)
+	}
+	if got, want := targetNames(targets), []string{"opencode-go"}; !sameStrings(got, want) {
+		t.Fatalf("targets = %#v, want %#v", got, want)
 	}
 }
 

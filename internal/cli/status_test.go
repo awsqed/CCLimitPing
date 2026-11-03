@@ -205,6 +205,40 @@ func TestPrintUsageMarksMissingWindowNotEnforced(t *testing.T) {
 	}
 }
 
+func TestPrintUsageShowsMonthlyWindow(t *testing.T) {
+	var out bytes.Buffer
+	u := &usage.Usage{
+		Provider: "opencode-go",
+		Plan:     "Go",
+		FiveHour: usage.Window{UsedPercent: 1, ResetsAt: time.Now().Add(4 * time.Hour), WindowSeconds: 18000},
+		Weekly:   usage.Window{UsedPercent: 9, ResetsAt: time.Now().Add(5 * 24 * time.Hour), WindowSeconds: 604800},
+		Monthly:  usage.Window{UsedPercent: 4, ResetsAt: time.Now().Add(28 * 24 * time.Hour)},
+	}
+
+	printUsage(&out, enText, u, false, "used", nil)
+
+	got := out.String()
+	for _, want := range []string{"opencode-go (Go)", "  5h     [", "  weekly [", "  monthly [", "4.0% used"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("status output = %q, want it to contain %q", got, want)
+		}
+	}
+}
+
+func TestStatusJSONIncludesMonthlyWindow(t *testing.T) {
+	u := &usage.Usage{
+		Provider: "opencode-go",
+		Monthly:  usage.Window{UsedPercent: 4, ResetsAt: time.Now().Add(28 * 24 * time.Hour)},
+	}
+	s := newStatusJSON(u, false, nil)
+	if s.Monthly == nil || s.Monthly.UsedPercent != 4 {
+		t.Fatalf("monthly = %+v, want 4%%", s.Monthly)
+	}
+	if s.FiveHour != nil || s.Weekly != nil {
+		t.Fatalf("five_hour/weekly = %+v/%+v, want omitted when missing", s.FiveHour, s.Weekly)
+	}
+}
+
 func TestPrintUsageRendersChinese(t *testing.T) {
 	var out bytes.Buffer
 	u := &usage.Usage{
