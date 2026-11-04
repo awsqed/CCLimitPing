@@ -30,6 +30,9 @@ const (
 	// opencodeGoCleanupTimeout bounds the cleanup `opencode session delete` after
 	// the ping itself has already finished.
 	opencodeGoCleanupTimeout = 10 * time.Second
+	// opencodeGoAnchorSkew is how much clock disagreement opencodeGoWindow
+	// tolerates when deciding whether a rolling window has actually started.
+	opencodeGoAnchorSkew = 5 * time.Second
 )
 
 // OpenCodeGo reads the Go allowance through OpenCode's own local API and
@@ -72,11 +75,16 @@ type opencodeGoMeter struct {
 }
 
 func (o *OpenCodeGo) ReadUsage(ctx context.Context) (*usage.Usage, error) {
+	// Stamp the read before the command runs: while no window is running, the
+	// API reports one ending a full 5h from the moment it handles the request.
+	// Read after the command, that hypothetical reset is a few seconds short of
+	// 5h and looks anchored; read before it, it is at least 5h away.
+	readAt := time.Now()
 	raw, err := opencodeGoUsageJSON(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return opencodeGoUsageFromJSON(raw, time.Now())
+	return opencodeGoUsageFromJSON(raw, readAt)
 }
 
 // opencodeGoUsageJSON runs the local OpenCode API. --standalone keeps the read
@@ -142,8 +150,20 @@ func opencodeGoWindow(m opencodeGoMeter, length time.Duration, now time.Time) us
 		// A rolling window that ended in the past is not running: the next
 		// request starts a new one. Leaving the stale reset on would make
 		// watch wait out a window that is already free.
-		if length == 5*time.Hour && !now.Before(w.ResetsAt) {
-			w.ResetsAt = time.Time{}
+		//
+		// A rolling window with its whole length still ahead is not running
+		// either. The API never says "no window is running": it answers with a
+		// hypothetical one that resets five hours after the read, so its reset
+		// time slides forward on every poll. Taking that at face value made
+		// watch sit on a window it had never started and never ping. now is
+		// stamped before the command runs (see ReadUsage), so an idle window is
+		// at least its full length away while an anchored one is strictly
+		// closer; the skew only absorbs clock disagreement.
+		if length == 5*time.Hour {
+			remaining := w.ResetsAt.Sub(now)
+			if remaining <= 0 || (w.UsedPercent == 0 && remaining >= length-opencodeGoAnchorSkew) {
+				w.ResetsAt = time.Time{}
+			}
 		}
 	}
 	return w

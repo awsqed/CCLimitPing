@@ -64,6 +64,13 @@ type Config struct {
 	// UsageDisplay controls the text status percentage: "used" preserves the raw
 	// provider usage value; "remaining" shows the complement users see in some UIs.
 	UsageDisplay string `toml:"usage_display"`
+	// AlignStart is the global RFC3339 anchor for the first window, applied to
+	// every provider that leaves its own align_start empty. Empty = start ASAP.
+	AlignStart string `toml:"align_start"`
+	// ActiveHours is the global local-time range (e.g. "07:00-22:00") applied
+	// to every provider that leaves its own active_hours empty. The zero value
+	// means no restriction.
+	ActiveHours Hours `toml:"active_hours"`
 
 	Claude     ProviderConfig `toml:"claude"`
 	Codex      ProviderConfig `toml:"codex"`
@@ -146,10 +153,27 @@ func Load() (Config, error) {
 	if _, err := toml.DecodeFile(path, &cfg); err != nil {
 		return cfg, fmt.Errorf("parsing %s: %w", path, err)
 	}
+	cfg.applyGlobal()
 	if err := cfg.validate(); err != nil {
 		return cfg, err
 	}
 	return cfg, nil
+}
+
+// applyGlobal fills each provider's unset scheduling options from the
+// top-level values. A provider that sets its own value keeps it.
+func (c *Config) applyGlobal() {
+	apply := func(pc *ProviderConfig) {
+		if pc.AlignStart == "" {
+			pc.AlignStart = c.AlignStart
+		}
+		if pc.ActiveHours.IsZero() {
+			pc.ActiveHours = c.ActiveHours
+		}
+	}
+	apply(&c.Claude)
+	apply(&c.Codex)
+	apply(&c.OpenCodeGo)
 }
 
 func (c Config) validate() error {
@@ -161,6 +185,11 @@ func (c Config) validate() error {
 	}
 	if c.UsageDisplay != "" && c.UsageDisplay != "used" && c.UsageDisplay != "remaining" {
 		return fmt.Errorf("usage_display must be \"used\" or \"remaining\", got %q", c.UsageDisplay)
+	}
+	if c.AlignStart != "" {
+		if _, err := time.Parse(time.RFC3339, c.AlignStart); err != nil {
+			return fmt.Errorf("align_start: %w", err)
+		}
 	}
 	return nil
 }
@@ -202,6 +231,14 @@ notify = true
 # Text status percentage: "used" or "remaining".
 usage_display = "used"
 
+# Optional RFC3339 anchor for the first window, applied to every provider that
+# leaves its own align_start empty; empty = start ASAP.
+align_start = ""
+
+# Global local-time range applied to every provider that leaves its own
+# active_hours empty, e.g. "07:00-22:00"; empty = around the clock.
+active_hours = ""
+
 [claude]
 enabled = true
 prompt = "."
@@ -211,11 +248,13 @@ model = "haiku"
 # Extra Claude CLI args. Headless/print-only flags such as -p, --print,
 # --output-format, and --max-turns are ignored.
 extra_args = []
-# Optional RFC3339 anchor for the first window's phase; empty = start ASAP.
+# Optional RFC3339 anchor for the first window's phase; empty = inherit the
+# global align_start (or start ASAP if that is empty too).
 align_start = ""
 # Only start windows inside this local-time range (start inclusive, end
-# exclusive), e.g. "07:00-22:00"; empty = around the clock. Outside it, watch
-# waits for the next start instead of pinging.
+# exclusive), e.g. "07:00-22:00"; empty = inherit the global active_hours (or
+# around the clock if that is empty too). Outside it, watch waits for the next
+# start instead of pinging.
 active_hours = ""
 # Message injected to resume a proxied session when the 5h limit recovers
 # (limitping continue claude). Empty = "continue".
@@ -237,9 +276,11 @@ model = ""
 # tools are enabled in your Codex config.
 reasoning_effort = "low"
 extra_args = []
+# Optional RFC3339 anchor for the first window's phase; empty = inherit the
+# global align_start (or start ASAP if that is empty too).
 align_start = ""
 # Only start windows inside this local-time range, e.g. "07:00-22:00"; empty =
-# around the clock.
+# inherit the global active_hours (or around the clock if that is empty too).
 active_hours = ""
 # Message injected to resume a proxied session when the 5h limit recovers.
 continue_prompt = "continue"
@@ -258,9 +299,10 @@ prompt = "Do not perform any work. Reply with exactly: OK"
 model = "opencode-go/deepseek-v4.1-flash"
 # Extra "opencode run" args.
 extra_args = []
-# Optional RFC3339 anchor for the first window's phase; empty = start ASAP.
+# Optional RFC3339 anchor for the first window's phase; empty = inherit the
+# global align_start (or start ASAP if that is empty too).
 align_start = ""
 # Only start windows inside this local-time range, e.g. "07:00-22:00"; empty =
-# around the clock.
+# inherit the global active_hours (or around the clock if that is empty too).
 active_hours = ""
 `

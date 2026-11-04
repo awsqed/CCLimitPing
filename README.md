@@ -255,7 +255,7 @@ limitping continue codex       # proxy the CLI; auto-resume the task on 5h recov
 limitping continue codex --yolo             # flags after the provider pass through
 limitping continue claude --dangerously-skip-permissions
 limitping bg start             # run watch in the background, freeing the terminal
-limitping bg status            # running? + each watched provider's usage (alias: limitping bg)
+limitping bg status            # running? + usage + the next planned ping (alias: limitping bg)
 limitping bg logs -f           # follow the background watcher's log
 limitping bg stop              # stop the background watcher
 limitping hooks install        # install active-session detection hooks (claude|codex|all)
@@ -506,14 +506,16 @@ weekly_threshold = 0.99   # skip pinging when weekly usage >= this (0..1), until
 reset_buffer     = "10s"  # wait this long after a reset before pinging (ensures rollover)
 notify           = true   # macOS notifications on ping/skip/failure
 usage_display    = "used" # text status: "used" or "remaining"
+align_start      = ""     # global RFC3339 anchor; applied to providers that leave theirs empty
+active_hours     = ""     # global local-time range; applied to providers that leave theirs empty
 
 [claude]
 enabled    = true
 prompt     = "."
 model      = "haiku"      # cheapest tier; triggering doesn't need a SOTA model
 extra_args = []           # extra Claude CLI args; print/headless-only flags are ignored
-align_start = ""          # optional RFC3339 anchor for the first window; empty = start ASAP
-active_hours = ""         # only ping inside e.g. "07:00-22:00" (local time); empty = around the clock
+align_start = ""          # optional RFC3339 anchor for the first window; empty = inherit global
+active_hours = ""         # only ping inside e.g. "07:00-22:00" (local time); empty = inherit global
 continue_prompt = "continue"  # message `continue` injects on 5h recovery; empty = "continue"
 
 [codex]
@@ -523,7 +525,7 @@ model            = ""     # empty = pick the cheapest model your plan offers
 reasoning_effort = "low"  # "minimal" is rejected when web_search/image_gen tools are enabled
 extra_args       = []     # extra Codex CLI args; exec-only flags such as --json are ignored
 align_start      = ""
-active_hours     = ""     # only ping inside e.g. "07:00-22:00"; empty = around the clock
+active_hours     = ""     # only ping inside e.g. "07:00-22:00"; empty = inherit global
 continue_prompt  = "continue"  # message `continue` injects on 5h recovery; empty = "continue"
 
 [opencode_go]
@@ -532,7 +534,7 @@ prompt      = "Do not perform any work. Reply with exactly: OK"
 model       = "opencode-go/deepseek-v4.1-flash"  # any paid Go model starts a window
 extra_args  = []           # extra `opencode run` args
 align_start = ""
-active_hours = "07:00-22:00"  # optional: only start windows in this local-time range
+active_hours = "07:00-22:00"  # optional: only start windows in this local-time range (overrides global)
 ```
 
 Top-level keys:
@@ -546,15 +548,18 @@ Top-level keys:
   pinging, so the window has definitely rolled over.
 - **`usage_display`** — whether text `status` / `bg status` renders each window
   as used percentage or remaining percentage.
-- **`align_start`** (per provider) — pin the phase of your windows: set to a
-  future RFC3339 time to delay the very first ping until then; afterwards windows
-  chain automatically every ~5h.
-- **`active_hours`** (per provider) — only start windows inside this local-time
-  range, e.g. `"07:00-22:00"` (start inclusive, end exclusive). Outside it,
-  `watch` / `bg` wait for the next start instead of pinging, so a 17:00 window
-  runs to 22:00 and the next ping happens at 07:00 the following morning. Empty
-  (the default) allows pings around the clock. Use the local timezone, e.g.
-  `TZ=Asia/Ho_Chi_Minh`. `align_start` and `active_hours` can be combined.
+- **`align_start`** (global and per provider) — pin the phase of your windows:
+  set to a future RFC3339 time to delay the very first ping until then;
+  afterwards windows chain automatically every ~5h. The top-level value is the
+  fallback for every provider that leaves its own `align_start` empty.
+- **`active_hours`** (global and per provider) — only start windows inside this
+  local-time range, e.g. `"07:00-22:00"` (start inclusive, end exclusive).
+  Outside it, `watch` / `bg` wait for the next start instead of pinging, so a
+  17:00 window runs to 22:00 and the next ping happens at 07:00 the following
+  morning. The top-level value is the fallback for every provider that leaves
+  its own `active_hours` empty; empty everywhere allows pings around the clock.
+  Use the local timezone, e.g. `TZ=Asia/Ho_Chi_Minh`. `align_start` and
+  `active_hours` can be combined.
 
 ### Why a cheap model
 
@@ -641,7 +646,7 @@ background process with the built-in `bg` command:
 
 ```sh
 limitping bg start          # start watch detached from the terminal
-limitping bg status         # running? pid, uptime, log + each provider's usage (alias: limitping bg)
+limitping bg status         # running? pid, uptime, log, usage, next ping (alias: limitping bg)
 limitping bg logs -f        # follow the watcher's log (-n N for last N lines)
 limitping bg stop           # stop it
 ```

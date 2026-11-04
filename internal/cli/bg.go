@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/wavever/CCLimitPing/internal/config"
+	"github.com/wavever/CCLimitPing/internal/scheduler"
 	"github.com/wavever/CCLimitPing/internal/spend"
 )
 
@@ -273,7 +274,8 @@ func runBgStatus(ctx context.Context, out io.Writer) error {
 	}
 	fmt.Fprintf(out, "  %s: %s%s\n", text.bgFieldWatching, strings.Join(names, ", "), dryRunNote(st.DryRun))
 
-	// Per-provider usage, the same view as `limitping status`.
+	// Per-provider usage, the same view as `limitping status`, plus when the
+	// watcher plans to ping that provider again.
 	fmt.Fprintln(out)
 	for _, p := range providers {
 		spendCh := make(chan *spend.Summary, 1)
@@ -288,7 +290,14 @@ func runBgStatus(ctx context.Context, out io.Writer) error {
 			fmt.Fprintln(out)
 			continue
 		}
-		printUsage(out, text, u, false, cfg.UsageDisplay, sum)
+		printUsageBody(out, text, u, false, cfg.UsageDisplay, sum)
+		// The provider's own next planned ping, with the one-time align_start
+		// anchor folded in (scheduler.NextPing).
+		if target, terr := makeTarget(p, providerConfig(cfg, p.Name())); terr == nil {
+			at := scheduler.NextPing(target, u, cfg, time.Now())
+			fmt.Fprintf(out, text.bgNextPingFmt, text.bgFieldNextPing, at.Local().Format("2006-01-02 15:04:05"), fmtDur(text, time.Until(at)))
+		}
+		fmt.Fprintln(out)
 	}
 
 	fmt.Fprintln(out, text.bgHintManage)

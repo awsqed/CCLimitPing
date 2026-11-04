@@ -164,6 +164,8 @@ type cliText struct {
 	bgFieldStarted       string
 	bgFieldLogs          string
 	bgFieldPings         string
+	bgFieldNextPing      string
+	bgNextPingFmt        string
 	bgPingNone           string
 	bgPingSummaryFmt     string
 	bgPingShowingLastFmt string
@@ -378,9 +380,9 @@ Arguments:
   provider  Optional. One of: claude, codex, opencode-go, all.
             Defaults to all, which watches every enabled provider.
 
-Active hours: set active_hours = "07:00-22:00" under a provider to only start
-windows inside that local-time range; outside it, watch waits for the next
-start instead of pinging.
+Active hours: set active_hours = "07:00-22:00" at the top level to apply it to
+every provider, or under a provider to override it for that provider only.
+Outside the range, watch waits for the next start instead of pinging.
 
 Reset credits (Codex reset credits, Claude reset cards): set auto_redeem = true under [claude] or [codex] in the config and watch also spends a banked reset that is about to lapse — within 24h when there is usage worth reclaiming, or in its final hour. Off by default because redeeming is irreversible; 'limitping redeem' spends one by hand.
 
@@ -512,6 +514,8 @@ Examples:
 	bgFieldStarted:       "started",
 	bgFieldLogs:          "logs",
 	bgFieldPings:         "ping history",
+	bgFieldNextPing:      "next ping",
+	bgNextPingFmt:        "  %s: %s (in %s)\n",
 	bgPingNone:           "none recorded since this watcher started",
 	bgPingSummaryFmt:     "%d total (%d succeeded, %d failed, %d dry-run)\n",
 	bgPingShowingLastFmt: "showing last %d",
@@ -718,8 +722,8 @@ var zhText = cliText{
   provider  可选。取值: claude、codex、opencode-go、all。
             默认是 all，会监测所有已启用的 Provider。
 
-活动时段: 在某个 Provider 下设置 active_hours = "07:00-22:00"，watch 只在该本地
-时间段内开启窗口；时段外会等到下一次开始，不会 ping。
+活动时段: 在顶层设置 active_hours = "07:00-22:00" 会应用到所有 Provider；在某个
+Provider 下设置则只覆盖该 Provider。时段外 watch 会等到下一次开始，不会 ping。
 
 重置卡（Codex 重置卡、Claude 重置卡）: 在配置的 [claude] 或 [codex] 下设置 auto_redeem = true，watch 还会在重置卡临近过期时自动用掉它——剩余有效期 24h 内且确实有用量可回收，或进入最后 1 小时。因为兑换不可撤销，默认关闭；手动兑换用 'limitping redeem'。
 
@@ -850,6 +854,8 @@ var zhText = cliText{
 	bgFieldStarted:       "启动于",
 	bgFieldLogs:          "日志",
 	bgFieldPings:         "ping 记录",
+	bgFieldNextPing:      "下次 ping",
+	bgNextPingFmt:        "  %s：%s（还有 %s）\n",
 	bgPingNone:           "本次后台监听启动后暂无记录",
 	bgPingSummaryFmt:     "共 %d 次（成功 %d，失败 %d，dry-run %d）\n",
 	bgPingShowingLastFmt: "显示最近 %d 条",

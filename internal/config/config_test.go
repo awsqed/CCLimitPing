@@ -135,6 +135,50 @@ active_hours = "07:00-22:00"
 	}
 }
 
+func TestGlobalSchedulingOptionsApplyToProviders(t *testing.T) {
+	path := useTempConfigDir(t)
+	writeConfig(t, path, `
+align_start = "2030-01-01T00:00:00Z"
+active_hours = "07:00-22:00"
+
+[claude]
+align_start = "2031-01-01T00:00:00Z"
+
+[codex]
+active_hours = "08:00-21:00"
+`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Claude.AlignStart != "2031-01-01T00:00:00Z" {
+		t.Fatalf("claude.align_start = %q, want the provider's own value", cfg.Claude.AlignStart)
+	}
+	if got := cfg.Claude.ActiveHours.String(); got != "07:00-22:00" {
+		t.Fatalf("claude.active_hours = %q, want the global range", got)
+	}
+	if cfg.Codex.AlignStart != "2030-01-01T00:00:00Z" {
+		t.Fatalf("codex.align_start = %q, want the global anchor", cfg.Codex.AlignStart)
+	}
+	if got := cfg.Codex.ActiveHours.String(); got != "08:00-21:00" {
+		t.Fatalf("codex.active_hours = %q, want the provider's own range", got)
+	}
+	if cfg.OpenCodeGo.AlignStart != "2030-01-01T00:00:00Z" {
+		t.Fatalf("opencode_go.align_start = %q, want the global anchor", cfg.OpenCodeGo.AlignStart)
+	}
+	if got := cfg.OpenCodeGo.ActiveHours.String(); got != "07:00-22:00" {
+		t.Fatalf("opencode_go.active_hours = %q, want the global range", got)
+	}
+}
+
+func TestLoadRejectsInvalidGlobalAlignStart(t *testing.T) {
+	path := useTempConfigDir(t)
+	writeConfig(t, path, `align_start = "tomorrow"`)
+	if _, err := Load(); err == nil {
+		t.Fatal("Load() accepted an invalid global align_start")
+	}
+}
+
 func TestLoadRejectsInvalidActiveHours(t *testing.T) {
 	path := useTempConfigDir(t)
 	writeConfig(t, path, `

@@ -30,16 +30,16 @@ func TestOpenCodeGoUsageFromJSON(t *testing.T) {
 	if u.Provider != "opencode-go" || u.Plan != "Go" {
 		t.Fatalf("provider/plan = %q/%q", u.Provider, u.Plan)
 	}
-	if !u.FiveHour.Active() {
+	if u.FiveHour.ResetsAt.IsZero() || !now.Before(u.FiveHour.ResetsAt) {
 		t.Errorf("rolling window not active: %+v", u.FiveHour)
 	}
 	if u.FiveHour.WindowSeconds != 5*60*60 {
 		t.Errorf("rolling window seconds = %d, want 5h", u.FiveHour.WindowSeconds)
 	}
-	if !u.Weekly.Active() || u.Weekly.UsedPercent != 9 {
+	if u.Weekly.ResetsAt.IsZero() || u.Weekly.UsedPercent != 9 {
 		t.Errorf("weekly = %+v", u.Weekly)
 	}
-	if u.Monthly.Missing() || u.Monthly.UsedPercent != 4 || !u.Monthly.Active() {
+	if u.Monthly.Missing() || u.Monthly.UsedPercent != 4 || u.Monthly.ResetsAt.IsZero() {
 		t.Errorf("monthly = %+v", u.Monthly)
 	}
 	if len(u.Raw) == 0 {
@@ -91,6 +91,48 @@ func TestOpenCodeGoPastRollingResetIsCleared(t *testing.T) {
 	}
 	if !u.Weekly.ResetsAt.Equal(time.UnixMilli(1794182400000)) {
 		t.Errorf("weekly reset = %v, want it kept", u.Weekly.ResetsAt)
+	}
+}
+
+// While no rolling window is running, the API answers with a hypothetical one
+// whose reset is five hours after the read. Taking it as running leaves watch
+// waiting on a window that never began.
+func TestOpenCodeGoIdleRollingResetIsCleared(t *testing.T) {
+	now := time.Unix(1793673762, 0)
+	raw := []byte(`{"data":{"workspace":{"name":"me"},"go":{
+		"rolling":{"percent":0,"limited":false,"resetsAt":1793691762000},
+		"weekly":{"percent":9,"limited":false,"resetsAt":1794182400000},
+		"monthly":{"percent":4,"limited":false,"resetsAt":1796120382000}}}}`)
+	u, err := opencodeGoUsageFromJSON(raw, now)
+	if err != nil {
+		t.Fatalf("opencodeGoUsageFromJSON: %v", err)
+	}
+	if !u.FiveHour.ResetsAt.IsZero() {
+		t.Fatalf("idle rolling window reads as running: %+v", u.FiveHour)
+	}
+	if u.FiveHour.Missing() {
+		t.Error("rolling window reported as missing; the limit is enforced")
+	}
+	if u.FiveHour.WindowSeconds != 5*60*60 {
+		t.Errorf("rolling window seconds = %d, want 5h", u.FiveHour.WindowSeconds)
+	}
+}
+
+// A window a request actually anchored keeps its reset, even at 0%: a ping
+// alone uses too little to round up from zero.
+func TestOpenCodeGoAnchoredRollingResetIsKept(t *testing.T) {
+	now := time.Unix(1793673762, 0)
+	raw := []byte(`{"data":{"workspace":{"name":"me"},"go":{
+		"rolling":{"percent":0,"limited":false,"resetsAt":1793691732000},
+		"weekly":{"percent":9,"limited":false,"resetsAt":1794182400000},
+		"monthly":{"percent":4,"limited":false,"resetsAt":1796120382000}}}}`)
+	u, err := opencodeGoUsageFromJSON(raw, now)
+	if err != nil {
+		t.Fatalf("opencodeGoUsageFromJSON: %v", err)
+	}
+	want := time.UnixMilli(1793691732000)
+	if !u.FiveHour.ResetsAt.Equal(want) {
+		t.Errorf("rolling reset = %v, want %v", u.FiveHour.ResetsAt, want)
 	}
 }
 

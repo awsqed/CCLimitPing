@@ -220,7 +220,7 @@ limitping continue codex       # 代理 CLI;5h 限额恢复时自动续跑任务
 limitping continue codex --yolo             # Provider 后面的参数原样透传
 limitping continue claude --dangerously-skip-permissions
 limitping bg start             # 在后台运行 watch,释放终端
-limitping bg status            # 是否在运行?并列出各 Provider 用量(等同于 limitping bg)
+limitping bg status            # 是否在运行?用量与下次 ping 时间(等同于 limitping bg)
 limitping bg logs -f           # 持续查看后台监听的日志
 limitping bg stop              # 停止后台监听
 limitping hooks install        # 安装活跃会话检测钩子(claude|codex|all)
@@ -454,14 +454,16 @@ weekly_threshold = 0.99   # 周用量 >= 此值(0..1)就跳过 ping,直到周窗
 reset_buffer     = "10s"  # 到达重置时刻后再等这么久才 ping(确保窗口已翻篇)
 notify           = true   # 在 ping/跳过/失败 时弹 macOS 通知
 usage_display    = "used" # 文本状态显示 "used" 或 "remaining"
+align_start      = ""     # 全局 RFC3339 锚点;对未单独设置的 Provider 生效
+active_hours     = ""     # 全局本地时间段;对未单独设置的 Provider 生效
 
 [claude]
 enabled    = true
 prompt     = "."
 model      = "haiku"      # 最便宜的档位;触发并不需要 SOTA 模型
 extra_args = []           # 额外 Claude CLI 参数;print/headless-only 参数会被忽略
-align_start = ""          # 可选 RFC3339:首个窗口的相位锚点;留空 = 尽快开始
-active_hours = ""         # 只在此本地时间段内 ping,例如 "07:00-22:00";留空 = 全天
+align_start = ""          # 可选 RFC3339:首个窗口的相位锚点;留空 = 继承全局
+active_hours = ""         # 只在此本地时间段内 ping,例如 "07:00-22:00";留空 = 继承全局
 continue_prompt = "continue"  # continue 在 5h 恢复时注入的消息;留空 = "continue"
 
 [codex]
@@ -471,7 +473,7 @@ model            = ""     # 留空 = 自动选择你的套餐里最便宜的模�
 reasoning_effort = "low"  # 启用 web_search/image_gen 工具时,"minimal" 会被拒绝
 extra_args       = []     # 额外 Codex CLI 参数;--json 等 exec-only 参数会被忽略
 align_start      = ""
-active_hours     = ""     # 只在此本地时间段内 ping,例如 "07:00-22:00";留空 = 全天
+active_hours     = ""     # 只在此本地时间段内 ping,例如 "07:00-22:00";留空 = 继承全局
 continue_prompt  = "continue"  # continue 在 5h 恢复时注入的消息;留空 = "continue"
 
 [opencode_go]
@@ -480,7 +482,7 @@ prompt      = "Do not perform any work. Reply with exactly: OK"
 model       = "opencode-go/deepseek-v4.1-flash"  # 任何付费 Go 模型都会起算窗口
 extra_args  = []           # 额外 `opencode run` 参数
 align_start = ""
-active_hours = "07:00-22:00"  # 可选:只在此本地时间段内开启窗口
+active_hours = "07:00-22:00"  # 可选:只在此本地时间段内开启窗口(覆盖全局)
 ```
 
 顶层配置项:
@@ -490,11 +492,13 @@ active_hours = "07:00-22:00"  # 可选:只在此本地时间段内开启窗口
   也会恢复 ping;用 `limitping redeem` 兑换的话,1 分钟内就会唤醒 watch。
 - **`reset_buffer`** —— 在窗口重置时刻之后再等待多久才 ping,确保窗口确实已翻篇。
 - **`usage_display`** —— 文本 `status` / `bg status` 使用已用百分比还是剩余百分比。
-- **`align_start`**(每个 Provider)—— 固定窗口相位:设为一个未来的 RFC3339 时间,
-  把第一次 ping 推迟到那时;之后窗口每 ~5h 自动接龙。
-- **`active_hours`**(每个 Provider)—— 只在此本地时间段内开启窗口,例如
+- **`align_start`**(全局与每个 Provider)—— 固定窗口相位:设为一个未来的 RFC3339
+  时间,把第一次 ping 推迟到那时;之后窗口每 ~5h 自动接龙。顶层值是所有未单独设置
+  `align_start` 的 Provider 的兜底值。
+- **`active_hours`**(全局与每个 Provider)—— 只在此本地时间段内开启窗口,例如
   `"07:00-22:00"`(含开始、不含结束)。时间段外 `watch` / `bg` 会等到下一次开始,
-  因此 17:00 的窗口跑到 22:00,下一次 ping 在次日 07:00。留空(默认)表示全天。
+  因此 17:00 的窗口跑到 22:00,下一次 ping 在次日 07:00。顶层值是所有未单独设置
+  `active_hours` 的 Provider 的兜底值;全部留空表示全天。
   使用本地时区,例如 `TZ=Asia/Ho_Chi_Minh`;可与 `align_start` 同时使用。
 
 ### 为什么用便宜模型
@@ -570,7 +574,7 @@ limitping schedule codex --every 5h --dry-run
 
 ```sh
 limitping bg start          # 脱离终端,在后台启动 watch
-limitping bg status         # 是否在运行?pid、运行时长、日志 + 各 Provider 用量(等同于 limitping bg)
+limitping bg status         # 是否在运行?pid、运行时长、日志、用量与下次 ping(等同于 limitping bg)
 limitping bg logs -f        # 持续查看日志(-n N 查看最后 N 行)
 limitping bg stop           # 停止
 ```
